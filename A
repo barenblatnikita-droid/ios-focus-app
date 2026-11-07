@@ -1,0 +1,94 @@
+import Foundation
+import FamilyControls
+import ManagedSettings
+
+  @MainActor
+  final class ScreenTimeManager: ObservableObject {
+      static let shared = ScreenTimeManager()
+
+     
+      private let store = ManagedSettingsStore(named: .init("FocusSessionStore"))
+
+      
+      @Published var activitySelection = FamilyActivitySelection() {
+          didSet {
+              saveSelection()
+          }
+      }
+
+      @Published var authorizationStatus: AuthorizationStatus = .notDetermined
+
+      private let userDefaultsKey = "SavedFamilyActivitySelection"
+
+      init() {
+          loadSelection()
+          checkAuthorizationStatus()
+      }
+
+    
+
+      func requestAuthorization() async {
+          do {
+             
+              try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+              checkAuthorizationStatus()
+          } catch {
+              print("Ошибка авторизации FamilyControls: \(error.localizedDescription)")
+              checkAuthorizationStatus()
+          }
+      }
+
+      func checkAuthorizationStatus() {
+          authorizationStatus = AuthorizationCenter.shared.authorizationStatus
+      }
+
+     
+
+    
+      func applyShield() {
+          let appTokens = activitySelection.applicationTokens
+          let categoryTokens = activitySelection.categoryTokens
+
+          guard !appTokens.isEmpty || !categoryTokens.isEmpty else {
+              print("Нет выбранных приложений для блокировки")
+              return
+          }
+
+          
+          store.shield.applications = appTokens.isEmpty ? nil : appTokens
+
+        
+          store.shield.applicationCategories = categoryTokens.isEmpty ? nil :
+  .specific(categoryTokens)
+
+          print("Блокировка включена: \(appTokens.count) приложений")
+      }
+
+      
+      func removeShield() {
+          store.shield.applications = nil
+          store.shield.applicationCategories = nil
+          // Либо полный сброс: store.clearAllSettings()
+          print("Блокировка снята")
+      }
+
+     
+      private func saveSelection() {
+          do {
+              let data = try PropertyListEncoder().encode(activitySelection)
+              UserDefaults.standard.set(data, forKey: userDefaultsKey)
+          } catch {
+              print("Ошибка сохранения FamilyActivitySelection: \(error)")
+          }
+      }
+
+      private func loadSelection() {
+          guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else { return }
+          do {
+              activitySelection = try PropertyListDecoder().decode(FamilyActivitySelection.self, from:
+   data)
+          } catch {
+              print("Ошибка загрузки FamilyActivitySelection: \(error)")
+          }
+      }
+  }
