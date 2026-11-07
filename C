@@ -1,0 +1,180 @@
+import SwiftUI
+import FamilyControls
+
+  struct ContentView: View {
+      @StateObject private var timerVM = FocusTimerViewModel()
+      @StateObject private var screenTime = ScreenTimeManager.shared
+      @State private var isPickerPresented = false
+
+      var body: some View {
+          NavigationStack {
+              VStack(spacing: 32) {
+                  // Статус авторизации Screen Time
+                  if screenTime.authorizationStatus != .approved {
+                      authorizationBanner
+                  }
+
+                  Spacer()
+
+               
+                  ZStack {
+                      Circle()
+                          .stroke(lineWidth: 16)
+                          .opacity(0.15)
+                          .foregroundColor(.blue)
+
+                      Circle()
+                          .trim(from: 0.0, to: CGFloat(timerVM.progress))
+                          .stroke(style: StrokeStyle(lineWidth: 16, lineCap: .round, lineJoin:
+  .round))
+                          .foregroundColor(.blue)
+                          .rotationEffect(Angle(degrees: 270.0))
+                          .animation(.linear(duration: 1.0), value: timerVM.progress)
+
+                      VStack(spacing: 8) {
+                          Text(timerVM.formattedTime)
+                              .font(.system(size: 54, weight: .bold, design: .rounded))
+                              .monospacedDigit()
+
+                          Text(timerVM.focusState == .active ? "Фокусировка активна" : "Готов к
+  старту")
+                              .font(.subheadline)
+                              .foregroundColor(.secondary)
+                      }
+                  }
+                  .frame(width: 260, height: 260)
+
+                  // Выбор пресетов длительности (доступно только в покое)
+                  if timerVM.focusState == .idle {
+                      HStack(spacing: 12) {
+                          durationChip(title: "15 мин", minutes: 15)
+                          durationChip(title: "25 мин", minutes: 25)
+                          durationChip(title: "45 мин", minutes: 45)
+                      }
+                  }
+
+                  // Кнопка выбора приложений
+                  Button {
+                      isPickerPresented = true
+                  } label: {
+                      HStack {
+                          Image(systemName: "hand.raised.fill")
+                          Text(selectedAppsCountText)
+                      }
+                      .font(.callout.bold())
+                      .padding(.horizontal, 20)
+                      .padding(.vertical, 10)
+                      .background(Color(.secondarySystemBackground))
+                      .cornerRadius(20)
+                  }
+                  .disabled(timerVM.focusState == .active)
+
+                  Spacer()
+
+                  // Кнопки управления таймером
+                  controlsView
+              }
+              .padding()
+              .navigationTitle("Фокус & Блокировка")
+              // Системный пикер приложений из FamilyControls
+              .familyActivityPicker(
+                  isPresented: $isPickerPresented,
+                  selection: $screenTime.activitySelection
+              )
+              .task {
+                  if screenTime.authorizationStatus == .notDetermined {
+                      await screenTime.requestAuthorization()
+                  }
+              }
+          }
+      }
+
+      // MARK: - Subviews
+
+      private var authorizationBanner: some View {
+          VStack(spacing: 8) {
+              Text("Требуется доступ к экранному времени")
+                  .font(.headline)
+              Text("Для блокировки приложений предоставьте разрешение.")
+                  .font(.caption)
+                  .multilineTextAlignment(.center)
+              Button("Разрешить") {
+                  Task {
+                      await screenTime.requestAuthorization()
+                  }
+              }
+              .buttonStyle(.borderedProminent)
+              .controlSize(.small)
+          }
+          .padding()
+          .frame(maxWidth: .infinity)
+          .background(Color.orange.opacity(0.15))
+          .cornerRadius(12)
+      }
+
+      private func durationChip(title: String, minutes: Int) -> some View {
+          let isSelected = (timerVM.totalDuration == minutes * 60)
+          return Button(title) {
+              timerVM.setDuration(minutes: minutes)
+          }
+          .buttonStyle(.plain)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 8)
+          .background(isSelected ? Color.blue : Color(.secondarySystemBackground))
+          .foregroundColor(isSelected ? .white : .primary)
+          .clipShape(Capsule())
+      }
+
+      private var controlsView: some View {
+          HStack(spacing: 20) {
+              switch timerVM.focusState {
+              case .idle:
+                  Button(action: timerVM.startFocus) {
+                      Label("Начать фокус", systemImage: "play.fill")
+                          .frame(maxWidth: .infinity)
+                  }
+                  .buttonStyle(.borderedProminent)
+                  .controlSize(.large)
+
+              case .active:
+                  Button(action: timerVM.pauseFocus) {
+                      Label("Пауза", systemImage: "pause.fill")
+                          .frame(maxWidth: .infinity)
+                  }
+                  .buttonStyle(.bordered)
+                  .controlSize(.large)
+
+                  Button(role: .destructive, action: timerVM.stopFocus) {
+                      Image(systemName: "stop.fill")
+                  }
+                  .buttonStyle(.bordered)
+                  .controlSize(.large)
+
+              case .paused:
+                  Button(action: timerVM.resumeFocus) {
+                      Label("Продолжить", systemImage: "play.fill")
+                          .frame(maxWidth: .infinity)
+                  }
+                  .buttonStyle(.borderedProminent)
+                  .controlSize(.large)
+
+                  Button(role: .destructive, action: timerVM.stopFocus) {
+                      Image(systemName: "stop.fill")
+                  }
+                  .buttonStyle(.bordered)
+                  .controlSize(.large)
+              }
+          }
+          .padding(.bottom, 16)
+      }
+
+      private var selectedAppsCountText: String {
+          let appCount = screenTime.activitySelection.applicationTokens.count
+          let catCount = screenTime.activitySelection.categoryTokens.count
+          if appCount == 0 && catCount == 0 {
+              return "Выбрать блокируемые приложения"
+          }
+          return "Блокируется: \(appCount) прил., \(catCount) категорий"
+      }
+  }
+
