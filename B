@@ -1,0 +1,96 @@
+import SwiftUI
+import Combine
+
+  enum FocusState {
+      case idle
+      case active
+      case paused
+  }
+
+
+  final class FocusTimerViewModel: ObservableObject {
+      @Published var focusState: FocusState = .idle
+      @Published var remainingSeconds: Int = 25 * 60 // 25 минут по умолчанию
+      @Published var totalDuration: Int = 25 * 60
+
+      private var timer: AnyCancellable?
+      private let screenTime = ScreenTimeManager.shared
+
+      var formattedTime: String {
+          let minutes = remainingSeconds / 60
+          let seconds = remainingSeconds % 60
+          return String(format: "%02d:%02d", minutes, seconds)
+      }
+
+      var progress: Double {
+          guard totalDuration > 0 else { return 0 }
+          return Double(totalDuration - remainingSeconds) / Double(totalDuration)
+      }
+
+      func setDuration(minutes: Int) {
+          guard focusState == .idle else { return }
+          totalDuration = minutes * 60
+          remainingSeconds = totalDuration
+      }
+
+      func startFocus() {
+          guard screenTime.authorizationStatus == .approved else {
+              Task {
+                  await screenTime.requestAuthorization()
+                  if screenTime.authorizationStatus == .approved {
+                      self.startFocus()
+                  }
+              }
+              return
+          }
+
+         
+          screenTime.applyShield()
+          focusState = .active
+
+          startTimer()
+      }
+
+      func pauseFocus() {
+          focusState = .paused
+          timer?.cancel()
+          // При паузе можно временно снять или оставить блокировку — по желанию
+          screenTime.removeShield()
+      }
+
+      func resumeFocus() {
+          screenTime.applyShield()
+          focusState = .active
+          startTimer()
+      }
+
+      func stopFocus() {
+          timer?.cancel()
+          remainingSeconds = totalDuration
+          focusState = .idle
+          // Снимаем блокировку
+          screenTime.removeShield()
+      }
+
+      private func startTimer() {
+          timer?.cancel()
+          timer = Timer.publish(every: 1.0, on: .main, in: .common)
+              .autoconnect()
+              .sink { [weak self] _ in
+                  guard let self = self else { return }
+                  if self.remainingSeconds > 0 {
+                      self.remainingSeconds -= 1
+                  } else {
+                      self.finishFocus()
+                  }
+              }
+      }
+
+      private func finishFocus() {
+          timer?.cancel()
+          focusState = .idle
+          remainingSeconds = totalDuration
+          screenTime.removeShield()
+          // Здесь можно отправить локальное уведомление о завершении
+      }
+  }
